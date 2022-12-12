@@ -1,6 +1,6 @@
 const { invoke } = window.__TAURI__.tauri;
 const { writeText } = window.__TAURI__.clipboard;
-const { ask, confirm } = window.__TAURI__.dialog;
+const { ask, confirm, message } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
 let instanceURL;
@@ -40,8 +40,7 @@ async function createConfigFile(data) {
   await invoke("create_app_config", { data: JSON.stringify(data), path: "app.config.json" });
 }
 
-async function loadFiles(content) {
-  let data = JSON.parse(content);
+async function loadFiles(data) {
   metadata = {};
   let folders = [];
   let files = [];
@@ -61,6 +60,35 @@ async function loadFiles(content) {
   });
 }
 
+async function authFlow() {
+  let username = document.querySelector("#username").value;
+  let password = document.querySelector("#password").value;
+  if (!username  || !password) {
+    document.querySelector("#login-msg").innerHTML = "Please enter username and password";
+  } else {
+    let auth = await invoke("get_auth_cookies", {username: username, password: password});
+    if (auth) {
+      let msgEl = document.querySelector("#login-msg")
+      msgEl.style.color = "rgb(37, 172, 80)";
+      msgEl.innerHTML = "Login Successful ✓";
+      let token = auth.match(/_cv0_a=(.*?);/)[1];
+      let instances = await invoke("fetch_instances", { bearer: token });
+      let parentInstance = findParentInstance(instances);
+      instanceURL = parentInstance.url;
+      bearerToken = token;
+      parentInstance["bearer"] = token;
+      let project_key = await invoke("fetch", { url: `${instanceURL}/api/secret`, bearer: token });
+      parentInstance["project_key"] = project_key;
+      project_key = project_key;
+      await createConfigFile(parentInstance);
+      loginModalEl.style.display = "none";
+      let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
+      await loadFiles(JSON.parse(content));
+      return true;
+    }
+  }
+}
+
 async function configExistsOrCreate() {
   const exists = await invoke("file_exists", { path: "app.config.json" });
   if (exists) {
@@ -70,39 +98,23 @@ async function configExistsOrCreate() {
     instanceURL = data.url;
     bearerToken = data.bearer;
     project_key = data.project_key;
-    if (instanceURL && bearerToken && project_key) {
-      let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
-      await loadFiles(content);
+    let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
+    try {
+      data = JSON.parse(content);
+      await loadFiles(JSON.parse(content));
       return true;
-    } else {
+    }
+    catch (e) {
+      message('Please login again.', { title: 'Space session expired.', type: 'error' });
       loginModalEl.style.display = "flex";
+      loginButtonEl.addEventListener("click", async () => {
+        await authFlow();
+      });
     }
   } else {
     loginModalEl.style.display = "flex";
     loginButtonEl.addEventListener("click", async () => {
-      let username = document.querySelector("#username").value;
-      let password = document.querySelector("#password").value;
-      if (!username  || !password) {
-        document.querySelector("#login-msg").innerHTML = "Please enter username and password";
-      } else {
-        let auth = await invoke("get_auth_cookies", {username: username, password: password});
-        if (auth) {
-          let token = auth.match(/_cv0_a=(.*?);/)[1];
-          let instances = await invoke("fetch_instances", { bearer: token });
-          let parentInstance = findParentInstance(instances);
-          instanceURL = parentInstance.url;
-          bearerToken = token;
-          parentInstance["bearer"] = token;
-          let project_key = await invoke("fetch", { url: `${instanceURL}/api/secret`, bearer: token });
-          parentInstance["project_key"] = project_key;
-          project_key = project_key;
-          await createConfigFile(parentInstance);
-          loginModalEl.style.display = "none";
-          let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
-          await loadFiles(content);
-          return true;
-        }
-      }
+      await authFlow();
     });
   }
 }
@@ -123,7 +135,6 @@ let folderButton = document.querySelector("#new-folder");
 let uploadInput = document.getElementById("file-input");
 let fileView = document.querySelector(".content");
 let cardView = document.querySelector(".view");
-let snackbar = document.querySelector(".snackbar");
 let fileOption = document.querySelector(".file-option");
 const snackbarRed = "rgb(203, 20, 70)";
 const snackbarGreen = "rgb(37, 172, 80)";
@@ -263,7 +274,7 @@ async function uploadFile(file) {
 }
 
 function downloadFile(file) {
-  showSnack(`Downloading ${file.name}`);
+  showSnack(`Downloading ${file.name}`, downloadGreen);
   let header = {"X-Api-Key": project_key}
   let projectId = project_key.split("_")[0];
   const ROOT = 'https://drive.deta.sh/v1';
@@ -383,6 +394,7 @@ window.addEventListener("keydown", (e) => {
 })
 
 function showSnack(inner, color = snackbarGreen) {
+  let snackbar = document.querySelector(".snackbar");
   snackbar.innerHTML = inner;
   snackbar.style.backgroundColor = color;
   snackbar.style.visibility = "visible";
