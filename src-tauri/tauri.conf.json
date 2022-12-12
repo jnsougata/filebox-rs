@@ -20,6 +20,9 @@
       "clipboard": {
         "all": false,
         "writeText": true
+      },
+      "dialog": {
+        "all": true
       }
     },
     "bundle": {

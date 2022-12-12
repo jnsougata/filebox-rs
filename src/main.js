@@ -1,5 +1,7 @@
 const { invoke } = window.__TAURI__.tauri;
 const { writeText } = window.__TAURI__.clipboard;
+const { ask, confirm } = window.__TAURI__.dialog;
+const { listen } = window.__TAURI__.event;
 
 let instanceURL;
 let bearerToken;
@@ -115,6 +117,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   configExistsOrCreate()
 });
+
 let uploadButton = document.querySelector("#new-upload");
 let folderButton = document.querySelector("#new-folder");
 let uploadInput = document.getElementById("file-input");
@@ -126,7 +129,6 @@ const snackbarRed = "rgb(203, 20, 70)";
 const snackbarGreen = "rgb(37, 172, 80)";
 const downloadGreen = "#25a03d";
 const uploadBlue = "#1549e3";
-let hiddenState = true;
 let metadata = null;
 let contextFile = null;
 let folderQueue = [];
@@ -157,9 +159,9 @@ async function uploadFile(file) {
     if (folderQueue.length > 0) {
         let folder = folderQueue[folderQueue.length - 1];
         if (folder.parent) {
-            body.parent = `${folder.parent}/${folder.name}`;
+          body.parent = `${folder.parent}/${folder.name}`;
         } else {
-            body.parent = folder.name;
+          body.parent = folder.name;
         }
     }
     metadata[hash] = body;
@@ -171,27 +173,27 @@ async function uploadFile(file) {
     let bar = document.getElementById(`bar-${hash}`);
     if (file.size < 10 * 1024 * 1024) {
         fetch(`${ROOT}/${projectId}/filebox/files?name=${qualifiedName}`, {
-            method: 'POST',
-            body: content,
-            headers: header
+          method: 'POST',
+          body: content,
+          headers: header
         })
         .then(() => {
           invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
           bar.style.width = "100%";
           setTimeout(() => {
-              showSnack(`Uploaded ${file.name}`);
-              hideBarMatrix(hash);
+            showSnack(`Uploaded ${file.name}`);
+            hideBarMatrix(hash);
           }, 500);
         })
     } else {
       let chunkSize = 10 * 1024 * 1024;
       let chunks = [];
       for (let i = 0; i < content.byteLength; i += chunkSize) {
-          chunks.push(content.slice(i, i + chunkSize));
+        chunks.push(content.slice(i, i + chunkSize));
       }
       fetch(`${ROOT}/${projectId}/filebox/uploads?name=${qualifiedName}`, {
-          method: 'POST',
-          headers: header
+        method: 'POST',
+        headers: header
       })
       .then(response => response.json())
       .then(data => {
@@ -205,52 +207,52 @@ async function uploadFile(file) {
           let progressIndex = 0;
           chunks.forEach((chunk, index) => {
               promises.push(
-                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${index+1}`, {
-                      method: 'POST',
-                      body: chunk,
-                      headers: header
-                  }).then(response => {
-                      if (response.status !== 200) {
-                          allOk = false;
-                      }
-                      progressIndex ++;
-                      bar.style.width = `${Math.round((progressIndex / finalIndex) * 100)}%`;
-                  })
+                fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${index+1}`, {
+                  method: 'POST',
+                  body: chunk,
+                  headers: header
+                }).then(response => {
+                  if (response.status !== 200) {
+                      allOk = false;
+                  }
+                  progressIndex ++;
+                  bar.style.width = `${Math.round((progressIndex / finalIndex) * 100)}%`;
+                })
               )
           })
           Promise.all(promises)
           .then(() => {
             fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${finalIndex}`, {
-                method: 'POST',
-                body: finalChunk,
-                headers: header
+              method: 'POST',
+              body: finalChunk,
+              headers: header
             })
             .then(response => {
               if (response.status !== 200) {
-                  allOk = false;
+                allOk = false;
               }
               if (allOk) {
-                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
-                      method: 'PATCH',
-                      headers: header,
-                  })
-                  .then(response => response.json())
-                  .then(() => {
-                    invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
-                    bar.style.width = "100%";
-                    showSnack(`Uploaded ${file.name}`);
-                    setTimeout(() => {
-                      hideBarMatrix(hash);
-                    }, 500);
-                  })
+                fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
+                    method: 'PATCH',
+                    headers: header,
+                })
+                .then(response => response.json())
+                .then(() => {
+                  invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
+                  bar.style.width = "100%";
+                  showSnack(`Uploaded ${file.name}`);
+                  setTimeout(() => {
+                    hideBarMatrix(hash);
+                  }, 500);
+                })
               } else {
-                  showSnack(`Failed to upload ${file.name}`, snackbarRed);
-                  document.getElementById(`${hash}`).remove();
-                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
-                      method: 'DELETE', 
-                      headers: header
-                  })
-                  .then(() => {})
+                showSnack(`Failed to upload ${file.name}`, snackbarRed);
+                document.getElementById(`${hash}`).remove();
+                fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
+                  method: 'DELETE', 
+                  headers: header
+                })
+                .then(() => {})
               }
             })
         })
@@ -281,14 +283,14 @@ function downloadFile(file) {
             return pump();
             function pump() {
               return reader.read().then(({ done, value }) => {
-                  if (done) {
-                      controller.close();
-                      return;
-                  }
-                  controller.enqueue(value);
-                  progress += value.length;
-                  bar.style.width = `${Math.round((progress / file.size) * 100)}%`;
-                  return pump();
+                if (done) {
+                  controller.close();
+                  return;
+                }
+                controller.enqueue(value);
+                progress += value.length;
+                bar.style.width = `${Math.round((progress / file.size) * 100)}%`;
+                return pump();
               });
             }
         }
@@ -303,8 +305,8 @@ function downloadFile(file) {
       a.download = file.name;
       bar.style.width = "100%";
       setTimeout(() => {
-          showSnack(`Downloaded ${file.name}`);
-          hideBarMatrix(file.hash);
+        showSnack(`Downloaded ${file.name}`);
+        hideBarMatrix(file.hash);
       }, 500);
       a.click();
   })
@@ -355,47 +357,48 @@ cardView.addEventListener("dragover", (e) => {
 
 cardView.addEventListener("drop", (e) => {
     e.preventDefault();
+    console.log("e.dataTransfer.items");
     if (e.dataTransfer.items) {
         [...e.dataTransfer.items].forEach(async (item) => {
-            await uploadFile(item.getAsFile());
+          await uploadFile(item.getAsFile());
         })
     }
 });
 
-window.addEventListener("paste", (e) => {
+window.addEventListener("paste", async (e) => {
     let items = e.clipboardData.items;
     if (items) {
         [...items].forEach(async (item) => {
-            if (item.kind === "file") {
-                await uploadFile(item.getAsFile());
-            }
+          if (item.kind === "file") {
+            uploadFile(item.getAsFile());
+          }
         })
     }
 });
 
 window.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "z") {
-        previousFolderButton.click();
+      previousFolderButton.click();
     }
 })
 
 function showSnack(inner, color = snackbarGreen) {
-    snackbar.innerHTML = inner;
-    snackbar.style.backgroundColor = color;
-    snackbar.style.visibility = "visible";
-    setTimeout(() => {
-      snackbar.style.visibility = "hidden";
-    }, 2000);
+  snackbar.innerHTML = inner;
+  snackbar.style.backgroundColor = color;
+  snackbar.style.visibility = "visible";
+  setTimeout(() => {
+    snackbar.style.visibility = "hidden";
+  }, 2000);
 }
 
 function shareButtonClick(file) {
   if (file.size > 1024 * 1024 * 30) {
-      showSnack("File is too big to share", snackbarRed);
-      return;
+    showSnack("File is too big to share", snackbarRed);
+    return;
   }
   writeText(`${instanceURL}/download/${file.hash}`)
   .then(() => {
-      showSnack(`URL copied to clipboard`);
+    showSnack(`URL copied to clipboard`);
   })
 }
 
@@ -409,17 +412,17 @@ function deleteFile(file) {
 
 // Progress Bar Handler
 function renderBarMatrix(hash, color) {
-    let progressBar = document.getElementById(`progress-${hash}`);
-    progressBar.style.display = "flex";
-    let bar = document.getElementById(`bar-${hash}`);
-    bar.style.backgroundColor = color;
+  let progressBar = document.getElementById(`progress-${hash}`);
+  progressBar.style.display = "flex";
+  let bar = document.getElementById(`bar-${hash}`);
+  bar.style.backgroundColor = color;
 }
 
 function hideBarMatrix(hash) {
-    let progressBar = document.getElementById(`progress-${hash}`);
-    progressBar.style.display = "none";
-    let bar = document.getElementById(`bar-${hash}`);
-    bar.style.width = "0%";
+  let progressBar = document.getElementById(`progress-${hash}`);
+  progressBar.style.display = "none";
+  let bar = document.getElementById(`bar-${hash}`);
+  bar.style.width = "0%";
 }
 
 // File Search Handler
@@ -427,125 +430,125 @@ let search = document.getElementById("search");
 let resultPanel = document.querySelector(".results");
 let inputTimer = null;
 search.oninput = (ev) => {
-    resultPanel.style.display = "flex";
-    if (inputTimer) {
-      clearTimeout(inputTimer);
-    }
-    inputTimer = setTimeout(() => {
-        if (ev.target.value.length > 0) {
-            invoke("post", {url: `${instanceURL}/api/query`, data: JSON.stringify({"name?contains": ev.target.value}), bearer: bearerToken})
-            .then(response => JSON.parse(response))
-            .then(data => {
-                if (data.length === 0) {
-                    resultPanel.innerHTML = `<div class="no-result" style="color: #ef5151; font-size: 15px; margin-top: 15px;">👀 No results found</div>`;
-                } else {
-                    resultPanel.innerHTML = "";
-                    data.forEach(file => {
-                        if (file.type !== "folder") {
-                            metadata[file.hash] = file;
-                            resultPanel.appendChild(newFileChild(file, true));
-                            let optionsButton = document.getElementById(`result-${file.hash}`);
-                            optionsButton.addEventListener("click", (e) => {
-                                resultPanel.style.display = "none";
-                                e.stopPropagation();
-                                cardClick(file.hash);
-                            });
-                        }
-                    });
+  resultPanel.style.display = "flex";
+  if (inputTimer) {
+    clearTimeout(inputTimer);
+  }
+  inputTimer = setTimeout(() => {
+      if (ev.target.value.length > 0) {
+        invoke("post", {url: `${instanceURL}/api/query`, data: JSON.stringify({"name?contains": ev.target.value}), bearer: bearerToken})
+        .then(response => JSON.parse(response))
+        .then(data => {
+          if (data.length === 0) {
+              resultPanel.innerHTML = `<div class="no-result" style="color: #ef5151; font-size: 15px; margin-top: 15px;">👀 No results found</div>`;
+          } else {
+            resultPanel.innerHTML = "";
+            data.forEach(file => {
+                if (file.type !== "folder") {
+                  metadata[file.hash] = file;
+                  resultPanel.appendChild(newFileChild(file, true));
+                  let optionsButton = document.getElementById(`result-${file.hash}`);
+                  optionsButton.addEventListener("click", (e) => {
+                    resultPanel.style.display = "none";
+                    e.stopPropagation();
+                    cardClick(file.hash);
+                  });
                 }
-            })
-        } else {
-            resultPanel.style.display = "none";
-        }
-    }, 2000);
+            });
+          }
+        })
+      } else {
+        resultPanel.style.display = "none";
+      }
+  }, 2000);
 };
 
 // File / Folder Render Element Handler
 function newFileChild(file, isResult = false) {
-    let fileDiv = document.createElement("div");
-    fileDiv.id = `file-${file.hash}`;
-    fileDiv.className = "card";
-    let iconDiv = document.createElement("div");
-    iconDiv.className = "icon";
-    let icon = document.createElement("i");
-    if (file.type === "folder") {
-        icon.className = "fa-solid fa-folder";
-    } else {
-        icon.className = handleMimeIcon(file.mime);
+  let fileDiv = document.createElement("div");
+  fileDiv.id = `file-${file.hash}`;
+  fileDiv.className = "card";
+  let iconDiv = document.createElement("div");
+  iconDiv.className = "icon";
+  let icon = document.createElement("i");
+  if (file.type === "folder") {
+    icon.className = "fa-solid fa-folder";
+  } else {
+    icon.className = handleMimeIcon(file.mime);
+  }
+  iconDiv.appendChild(icon);
+  let detailsDiv = document.createElement("div");
+  detailsDiv.className = "details";
+  let fileName = document.createElement("p");
+  fileName.innerHTML = file.name;
+  if (file.type !== "folder") {
+    fileName.contentEditable = "true";
+    fileName.spellcheck = false;
+  }
+  fileName.onclick = (e) => {
+    e.stopPropagation();
+    isRenaming = true;
+  };
+  fileName.onblur = (e) => {
+    fileRename(e, file.hash);
+  };
+  fileName.style.fontSize = "15px";
+  let fileDetails = document.createElement("p");
+  let d = new Date(file.date);
+  let date = d.getDate()
+    + "/" + (d.getMonth() + 1)
+    + "/" + d.getFullYear()
+    + " " + d.getHours()
+    + ":" + d.getMinutes()
+    + ":" + d.getSeconds();
+  let size = handleSizeUnit(file.size);
+  if (size) {
+    fileDetails.innerHTML = `${handleSizeUnit(file.size)}  ${date}`;
+  } else {
+    fileDetails.innerHTML = `${date}`;
+  }
+  let progressBar = document.createElement("div");
+  progressBar.id = `progress-${file.hash}`;
+  progressBar.className = "progress";
+  let bar = document.createElement("div");
+  bar.id = `bar-${file.hash}`;
+  bar.className = "bar";
+  progressBar.appendChild(bar);
+  progressBar.style.display = "none";
+  detailsDiv.appendChild(fileName);
+  detailsDiv.appendChild(fileDetails);
+  detailsDiv.appendChild(progressBar);
+  fileDiv.appendChild(iconDiv);
+  fileDiv.appendChild(detailsDiv);
+  if (file.type == "folder") {
+    let deleteButton = document.createElement("div");
+    deleteButton.className = "remove";
+    let deleteIcon = document.createElement("i");
+    deleteIcon.className = "fa-solid fa-trash";
+    deleteButton.appendChild(deleteIcon);
+    deleteButton.onclick = (e) => {
+        deleteFolder(e, file);
+    };
+    fileDiv.appendChild(deleteButton);
+    fileDiv.onclick = () => {
+        cardClick(file.hash);
+    };
+  } else {
+    let fileView = document.createElement("div");
+    fileView.className = "options";
+    if (isResult) {
+        fileView.id = `result-${file.hash}`;
     }
-    iconDiv.appendChild(icon);
-    let detailsDiv = document.createElement("div");
-    detailsDiv.className = "details";
-    let fileName = document.createElement("p");
-    fileName.innerHTML = file.name;
-    if (file.type !== "folder") {
-        fileName.contentEditable = "true";
-        fileName.spellcheck = false;
-    }
-    fileName.onclick = (e) => {
+    let fileViewIcon = document.createElement("i");
+    fileViewIcon.className = "fa-solid fa-ellipsis-vertical";
+    fileView.appendChild(fileViewIcon);
+    fileView.onclick = (e) => {
         e.stopPropagation();
-        isRenaming = true;
+        cardClick(file.hash);
     };
-    fileName.onblur = (e) => {
-        fileRename(e, file.hash);
-    };
-    fileName.style.fontSize = "15px";
-    let fileDetails = document.createElement("p");
-    let d = new Date(file.date);
-    let date = d.getDate()
-        + "/" + (d.getMonth() + 1)
-        + "/" + d.getFullYear()
-        + " " + d.getHours()
-        + ":" + d.getMinutes()
-        + ":" + d.getSeconds();
-    let size = handleSizeUnit(file.size);
-    if (size) {
-        fileDetails.innerHTML = `${handleSizeUnit(file.size)}  ${date}`;
-    } else {
-        fileDetails.innerHTML = `${date}`;
-    }
-    let progressBar = document.createElement("div");
-    progressBar.id = `progress-${file.hash}`;
-    progressBar.className = "progress";
-    let bar = document.createElement("div");
-    bar.id = `bar-${file.hash}`;
-    bar.className = "bar";
-    progressBar.appendChild(bar);
-    progressBar.style.display = "none";
-    detailsDiv.appendChild(fileName);
-    detailsDiv.appendChild(fileDetails);
-    detailsDiv.appendChild(progressBar);
-    fileDiv.appendChild(iconDiv);
-    fileDiv.appendChild(detailsDiv);
-    if (file.type == "folder") {
-        let deleteButton = document.createElement("div");
-        deleteButton.className = "remove";
-        let deleteIcon = document.createElement("i");
-        deleteIcon.className = "fa-solid fa-trash";
-        deleteButton.appendChild(deleteIcon);
-        deleteButton.onclick = (e) => {
-            deleteFolder(e, file);
-        };
-        fileDiv.appendChild(deleteButton);
-        fileDiv.onclick = () => {
-            cardClick(file.hash);
-        };
-    } else {
-        let fileView = document.createElement("div");
-        fileView.className = "options";
-        if (isResult) {
-            fileView.id = `result-${file.hash}`;
-        }
-        let fileViewIcon = document.createElement("i");
-        fileViewIcon.className = "fa-solid fa-ellipsis-vertical";
-        fileView.appendChild(fileViewIcon);
-        fileView.onclick = (e) => {
-            e.stopPropagation();
-            cardClick(file.hash);
-        };
-        fileDiv.appendChild(fileView);
-    }
-    return fileDiv;
+    fileDiv.appendChild(fileView);
+  }
+  return fileDiv;
 }
 
 // Folder Deletion Handler
@@ -554,31 +557,26 @@ function deleteFolder(ev, folder) {
   ev.stopPropagation();
   folderTarget["hash"] = folder.hash;
   if (folder.parent) {
-      folderTarget["children_path"] = `${folder.parent}/${folder.name}`;
-      folderTarget["self_path"] = `/${folder.parent}/${folder.name}`;
+    folderTarget["children_path"] = `${folder.parent}/${folder.name}`;
+    folderTarget["self_path"] = `/${folder.parent}/${folder.name}`;
   } else {
-      folderTarget["children_path"] = `${folder.name}`;
-      folderTarget["self_path"] = `/${folder.name}`;
+    folderTarget["children_path"] = `${folder.name}`;
+    folderTarget["self_path"] = `/${folder.name}`;
   }
-  let title = document.querySelector("#confirm_title")
-  title.innerHTML = `Permanently delete ${folderTarget.self_path} and all files inside it?`;
-  document.querySelector(".warning").style.display = "flex";
-}
-
-let confirmButton = document.querySelector("#confirm_yes");
-confirmButton.onclick = () => {
-    invoke("post", {url: `${instanceURL}/api/remove/folder`, data: JSON.stringify(folderTarget), bearer: bearerToken})
-    .then(() => {
-      document.querySelector(".warning").style.display = "none";
-      document.getElementById(`file-${folderTarget.hash}`).remove();
-      showSnack(`Deleted ${folderTarget.self_path}`, snackbarRed);
-    })
-};
-
-let cancelButton = document.querySelector("#confirm_no");
-cancelButton.onclick = () => {
-    document.querySelector(".warning").style.display = "none";
-    folderTarget = null;
+  confirm(
+    'This action cannot be reverted. Are you sure?', 
+    {title: `All files inside ${folderTarget.self_path} will be deleted.`, type: 'warning'}
+  )
+  .then((confirmed) => {
+    if (confirmed) {
+      invoke("post", {url: `${instanceURL}/api/remove/folder`, data: JSON.stringify(folderTarget), bearer: bearerToken})
+      .then(() => {
+        document.querySelector(".warning").style.display = "none";
+        document.getElementById(`file-${folderTarget.hash}`).remove();
+        showSnack(`Deleted ${folderTarget.self_path}`, snackbarRed);
+      })
+    }
+  })
 }
 
 
@@ -593,170 +591,170 @@ let fileDownloadOption = document.querySelector("#download-option");
 
 function cardClick(hash) {
     if (isRenaming) {
-        return;
+      return;
     }
     contextFile = metadata[hash];
     if (contextFile.type !== "folder") {
-        fileOptionTitle.innerHTML = contextFile.name;
-        fileOptionMime.innerHTML = contextFile.mime;
-        fileOption.style.display = "flex";
+      fileOptionTitle.innerHTML = contextFile.name;
+      fileOptionMime.innerHTML = contextFile.mime;
+      fileOption.style.display = "flex";
     } else {
-        folderQueue.push(metadata[hash]);
-        folderClick(metadata[hash]);
+      folderQueue.push(metadata[hash]);
+      folderClick(metadata[hash]);
     }
 }
 fileOptionClose.onclick = () => {
-    fileOption.style.display = "none";
+  fileOption.style.display = "none";
 };
 fileDownloadOption.onclick = () => {
-    downloadFile(contextFile);
-    fileOption.style.display = "none";
+  downloadFile(contextFile);
+  fileOption.style.display = "none";
 };
 fileDelteOption.onclick = () => {
-    deleteFile(contextFile);
-    fileOption.style.display = "none";
+  deleteFile(contextFile);
+  fileOption.style.display = "none";
 };
 fileShareOption.onclick = () => {
-    shareButtonClick(contextFile);
+  shareButtonClick(contextFile);
 };
 fileEmbedOption.onclick = () => {
-    if (contextFile.size > 1024 * 1024 * 5) {
-        showSnack("File is too big to embed", snackbarRed);
-        return;
-    }
-    writeText(`${instanceURL}/api/embed/${contextFile.hash}`)
-    .then(() => {
-      showSnack(`Embed url copied to clipboard`);
-    })
+  if (contextFile.size > 1024 * 1024 * 5) {
+      showSnack("File is too big to embed", snackbarRed);
+      return;
+  }
+  writeText(`${instanceURL}/api/embed/${contextFile.hash}`)
+  .then(() => {
+    showSnack(`Embed url copied to clipboard`);
+  })
 };
 
 // Promt Path Handler
 let pathPrompt = document.querySelector(".fragment");
 function folderClick(folder) {
-    fileOption.style.display = "none";
-    if (folder.parent) {
-        pathPrompt.innerHTML = `/${folder.parent}/${folder.name}/`;
-        handleFolderClick(`${folder.parent}/${folder.name}`);
-    } else {
-        pathPrompt.innerHTML = `/${folder.name}/`;
-        handleFolderClick(folder.name);
-    }
+  fileOption.style.display = "none";
+  if (folder.parent) {
+      pathPrompt.innerHTML = `/${folder.parent}/${folder.name}/`;
+      handleFolderClick(`${folder.parent}/${folder.name}`);
+  } else {
+      pathPrompt.innerHTML = `/${folder.name}/`;
+      handleFolderClick(folder.name);
+  }
 }
 
 // Prompt Back Button Handler
 let previousFolderButton = document.querySelector("#previos_folder");
 previousFolderButton.onclick = () => {
-    fileOption.style.display = "none";
-    if (folderQueue.length > 1) {
-        folderQueue.pop();
-        let folder = folderQueue[folderQueue.length - 1];
-        if (folder.parent) {
-            pathPrompt.innerHTML = `/${folder.parent}/${folder.name}/`;
-            handleFolderClick(`${folder.parent}/${folder.name}`);
-        } else {
-            pathPrompt.innerHTML = `/${folder.name}/`;
-            handleFolderClick(folder.name);
-        }
-    } else if (folderQueue.length === 1) {
-        pathPrompt.innerHTML = `/`;
-        folderQueue.pop();
-        invoke("fetch", {url: `${instanceURL}/api/metadata`, bearer: bearerToken})
-        .then(response => JSON.parse(response))
-        .then(data => {
-            for (let file of Object.values(metadata)) {
-                let fileDiv = document.getElementById(`file-${file.hash}`);
-                cardView.removeChild(fileDiv);
-            }
-            metadata = {};
-            let folders = [];
-            let files = [];
-            data.forEach(file => {
-                if (!file.parent) {
-                    metadata[file.hash] = file;
-                    if (file.type === "folder") {
-                        folders.push(file);
-                    } else {
-                        files.push(file);
-                    }
-                }
-            });
-            let items = folders.concat(files);
-            items.forEach(file => {
-                cardView.appendChild(newFileChild(file));
-            });
-        })
-    }
+  fileOption.style.display = "none";
+  if (folderQueue.length > 1) {
+      folderQueue.pop();
+      let folder = folderQueue[folderQueue.length - 1];
+      if (folder.parent) {
+          pathPrompt.innerHTML = `/${folder.parent}/${folder.name}/`;
+          handleFolderClick(`${folder.parent}/${folder.name}`);
+      } else {
+          pathPrompt.innerHTML = `/${folder.name}/`;
+          handleFolderClick(folder.name);
+      }
+  } else if (folderQueue.length === 1) {
+    pathPrompt.innerHTML = `/`;
+    folderQueue.pop();
+    invoke("fetch", {url: `${instanceURL}/api/metadata`, bearer: bearerToken})
+    .then(response => JSON.parse(response))
+    .then(data => {
+      for (let file of Object.values(metadata)) {
+          let fileDiv = document.getElementById(`file-${file.hash}`);
+          cardView.removeChild(fileDiv);
+      }
+      metadata = {};
+      let folders = [];
+      let files = [];
+      data.forEach(file => {
+          if (!file.parent) {
+              metadata[file.hash] = file;
+              if (file.type === "folder") {
+                  folders.push(file);
+              } else {
+                  files.push(file);
+              }
+          }
+      });
+      let items = folders.concat(files);
+      items.forEach(file => {
+          cardView.appendChild(newFileChild(file));
+      });
+    })
+  }
 };
 
 // Folder Click Handler
 function handleFolderClick(parent) {
     fetch(`/api/folder`, {
-        method: "POST",
-        body: JSON.stringify({parent: parent})
+      method: "POST",
+      body: JSON.stringify({parent: parent})
     })
     invoke("post", {url: `${instanceURL}/api/folder`, data: JSON.stringify({parent: parent}), bearer: bearerToken})
     .then(res => JSON.parse(res))
     .then(data => {
-        for (let file of Object.values(metadata)) {
-            let fileDiv = document.getElementById(`file-${file.hash}`);
-            cardView.removeChild(fileDiv);
+      for (let file of Object.values(metadata)) {
+        let fileDiv = document.getElementById(`file-${file.hash}`);
+        cardView.removeChild(fileDiv);
+      }
+      metadata = {};
+      let folders = [];
+      let files = [];
+      data.forEach(file => {
+        metadata[file.hash] = file;
+        if (file.type === "folder") {
+          folders.push(file);
+        } else {
+          files.push(file);
         }
-        metadata = {};
-        let folders = [];
-        let files = [];
-        data.forEach(file => {
-            metadata[file.hash] = file;
-            if (file.type === "folder") {
-                folders.push(file);
-            } else {
-                files.push(file);
-            }
-        });
-        let items = folders.concat(files);
-        items.forEach(file => {
-            cardView.appendChild(newFileChild(file));
-        });
+      });
+      let items = folders.concat(files);
+      items.forEach(file => {
+        cardView.appendChild(newFileChild(file));
+      });
     })
 }
 
 // Drag and Drop Handler
 uploadButton.addEventListener('click', () => {
-    uploadInput.click();
+  uploadInput.click();
 });
 
 uploadInput.addEventListener('change', async () => {
-    let files = uploadInput.files;
-    for (let i = 0; i < files.length; i++) {
-        await uploadFile(files[i]);
-    }
+  let files = uploadInput.files;
+  for (let i = 0; i < files.length; i++) {
+    await uploadFile(files[i]);
+  }
 });
 
 // Folder Create Handler
 folderButton.onclick = () => {
-    let folderName = prompt("Enter folder name");
-    if (folderName) {
-        let folderData = {
-            name: folderName,
-            hash: randomFileHash(),
-            date: new Date().toISOString(),
-            type: "folder",
-            parent: ""
-        }
-        if (folderQueue.length > 0) {
-            let folder = folderQueue[folderQueue.length - 1];
-            if (folder.parent) {
-                folderData.parent = `${folder.parent}/${folder.name}`;
-            } else {
-                folderData.parent = folder.name;
-            }
-        }
-        metadata[folderData.hash] = folderData;
-        cardView.appendChild(newFileChild(folderData));
-        invoke("post", {url: `${instanceURL}/api/metadata`, data: JSON.stringify(folderData), bearer: bearerToken})
-        .then(() => {
-            showSnack(`Folder ${folderName} created!`);
-        });
+  let folderName = prompt("Enter folder name");
+  if (folderName) {
+    let folderData = {
+      name: folderName,
+      hash: randomFileHash(),
+      date: new Date().toISOString(),
+      type: "folder",
+      parent: ""
     }
+    if (folderQueue.length > 0) {
+      let folder = folderQueue[folderQueue.length - 1];
+      if (folder.parent) {
+        folderData.parent = `${folder.parent}/${folder.name}`;
+      } else {
+        folderData.parent = folder.name;
+      }
+    }
+    metadata[folderData.hash] = folderData;
+    cardView.appendChild(newFileChild(folderData));
+    invoke("post", {url: `${instanceURL}/api/metadata`, data: JSON.stringify(folderData), bearer: bearerToken})
+    .then(() => {
+      showSnack(`Folder ${folderName} created!`);
+    });
+  }
 };
 
 // File Rename Handler
@@ -766,32 +764,24 @@ function fileRename(e, hash) {
   let updatedName = e.target.innerHTML;
   let updatedExtension = updatedName.split(".").pop();
   if (oldNameExtension !== updatedExtension) {
-      e.target.innerHTML = oldName;
-      showSnack("File extension cannot be changed", snackbarRed);
-      isRenaming = false;
-      return;
+    e.target.innerHTML = oldName;
+    showSnack("File extension cannot be changed", snackbarRed);
+    isRenaming = false;
+    return;
   }
   if (updatedName === oldName) {
-      isRenaming = false;
-      return;
+    isRenaming = false;
+    return;
   }
   let payload = {
-      hash: hash,
-      name: updatedName
+    hash: hash,
+    name: updatedName
   }
-  fetch(`${instanceURL}/api/rename`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-  })
   invoke("post", {url: `${instanceURL}/api/rename`, data: JSON.stringify(payload), bearer: bearerToken})
-  .then((data) => {
+  .then(() => {
     isRenaming = false;
-    if (res.status === 200) {
-        metadata[hash].name = updatedName;
-        showSnack(`File renamed to ${updatedName}`);
-    } else {
-        return;
-    }
+    metadata[hash].name = updatedName;
+    showSnack(`File renamed to ${updatedName}`, snackbarGreen);
   })
 }
 
