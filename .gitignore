@@ -23,3 +23,4 @@ dist-ssr
 *.sln
 *.sw?
 .vscode
+app.config.json

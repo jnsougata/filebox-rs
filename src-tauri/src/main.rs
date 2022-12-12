@@ -49,10 +49,37 @@ fn fetch_instances(bearer: &str) -> String {
         .unwrap();
     return res.text().unwrap();
 }
- 
+
+#[tauri::command]
+fn fetch(url: &str, bearer: &str) -> String {
+    let client = reqwest::blocking::Client::new();
+    let res = client.get(url)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Deta/0.1.0")
+        .header("Cookie", format!("deta_auth_token={}", bearer))
+        .send()
+        .unwrap();
+    return res.text().unwrap();
+}
+
+#[tauri::command]
+fn post(url: &str, data: &str, bearer: &str) -> String {
+    let mut body = String::new();
+    body.push_str(data);
+    let client = reqwest::blocking::Client::new();
+    let res = client.post(url)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Deta/0.1.0")
+        .header("Cookie", format!("deta_auth_token={}", bearer))
+        .body(body)
+        .send()
+        .unwrap();
+    return res.text().unwrap();
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![file_exists, create_app_config, get_auth_cookies, read_app_config, fetch_instances])
+        .invoke_handler(tauri::generate_handler![file_exists, create_app_config, get_auth_cookies, read_app_config, fetch_instances, fetch, post])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
