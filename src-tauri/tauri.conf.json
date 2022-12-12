@@ -18,9 +18,8 @@
         "open": true
       },
       "clipboard": {
-        "all": true,
-        "writeText": true,
-        "readText": true
+        "all": false,
+        "writeText": true
       }
     },
     "bundle": {

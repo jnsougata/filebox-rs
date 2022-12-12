@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.tauri;
+const { writeText } = window.__TAURI__.clipboard;
 
 let instanceURL;
 let bearerToken;
@@ -37,6 +38,27 @@ async function createConfigFile(data) {
   await invoke("create_app_config", { data: JSON.stringify(data), path: "app.config.json" });
 }
 
+async function loadFiles(content) {
+  let data = JSON.parse(content);
+  metadata = {};
+  let folders = [];
+  let files = [];
+  data.forEach(file => {
+      if (!file.parent) {
+          metadata[file.hash] = file;
+          if (file.type === "folder") {
+              folders.push(file);
+          } else {
+              files.push(file);
+          }
+      }
+  });
+  let items = folders.concat(files);
+  items.forEach(file => {
+      cardView.appendChild(newFileChild(file));
+  });
+}
+
 async function configExistsOrCreate() {
   const exists = await invoke("file_exists", { path: "app.config.json" });
   if (exists) {
@@ -47,6 +69,8 @@ async function configExistsOrCreate() {
     bearerToken = data.bearer;
     project_key = data.project_key;
     if (instanceURL && bearerToken && project_key) {
+      let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
+      await loadFiles(content);
       return true;
     } else {
       loginModalEl.style.display = "flex";
@@ -69,8 +93,11 @@ async function configExistsOrCreate() {
           parentInstance["bearer"] = token;
           let project_key = await invoke("fetch", { url: `${instanceURL}/api/secret`, bearer: token });
           parentInstance["project_key"] = project_key;
+          project_key = project_key;
           await createConfigFile(parentInstance);
           loginModalEl.style.display = "none";
+          let content = await invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
+          await loadFiles(content);
           return true;
         }
       }
@@ -87,36 +114,13 @@ window.addEventListener("DOMContentLoaded", () => {
     handleSideBar()
   });
   configExistsOrCreate()
-  .then(() => {
-    invoke("fetch", { url: `${instanceURL}/api/metadata`, bearer: bearerToken })
-    .then((response) => {
-      let data = JSON.parse(response);
-      metadata = {};
-      let folders = [];
-      let files = [];
-      data.forEach(file => {
-          if (!file.parent) {
-              metadata[file.hash] = file;
-              if (file.type === "folder") {
-                  folders.push(file);
-              } else {
-                  files.push(file);
-              }
-          }
-      });
-      let items = folders.concat(files);
-      items.forEach(file => {
-          cardView.appendChild(newFileChild(file));
-      });
-    })
-  });
 });
 let uploadButton = document.querySelector("#new-upload");
 let folderButton = document.querySelector("#new-folder");
 let uploadInput = document.getElementById("file-input");
 let fileView = document.querySelector(".content");
 let cardView = document.querySelector(".view");
-let snackbar = document.getElementById("snackbar");
+let snackbar = document.querySelector(".snackbar");
 let fileOption = document.querySelector(".file-option");
 const snackbarRed = "rgb(203, 20, 70)";
 const snackbarGreen = "rgb(37, 172, 80)";
@@ -143,174 +147,168 @@ async function uploadFile(file) {
   const ROOT = 'https://drive.deta.sh/v1';
   let reader = new FileReader();
   reader.onload = (ev) => {
-      let body = {
-          "hash": hash,
-          "name": file.name,
-          "size": file.size,
-          "mime": file.type,
-          "date": new Date().toISOString(),
+    let body = {
+      "hash": hash,
+      "name": file.name,
+      "size": file.size,
+      "mime": file.type,
+      "date": new Date().toISOString(),
+    }
+    if (folderQueue.length > 0) {
+        let folder = folderQueue[folderQueue.length - 1];
+        if (folder.parent) {
+            body.parent = `${folder.parent}/${folder.name}`;
+        } else {
+            body.parent = folder.name;
+        }
+    }
+    metadata[hash] = body;
+    let content = ev.target.result;
+    cardView.appendChild(newFileChild(body));
+    let extension = file.name.split('.').pop();
+    let qualifiedName = `${hash}.${extension}`;
+    renderBarMatrix(hash, uploadBlue);
+    let bar = document.getElementById(`bar-${hash}`);
+    if (file.size < 10 * 1024 * 1024) {
+        fetch(`${ROOT}/${projectId}/filebox/files?name=${qualifiedName}`, {
+            method: 'POST',
+            body: content,
+            headers: header
+        })
+        .then(() => {
+          invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
+          bar.style.width = "100%";
+          setTimeout(() => {
+              showSnack(`Uploaded ${file.name}`);
+              hideBarMatrix(hash);
+          }, 500);
+        })
+    } else {
+      let chunkSize = 10 * 1024 * 1024;
+      let chunks = [];
+      for (let i = 0; i < content.byteLength; i += chunkSize) {
+          chunks.push(content.slice(i, i + chunkSize));
       }
-      if (folderQueue.length > 0) {
-          let folder = folderQueue[folderQueue.length - 1];
-          if (folder.parent) {
-              body.parent = `${folder.parent}/${folder.name}`;
-          } else {
-              body.parent = folder.name;
-          }
-      }
-      metadata[hash] = body;
-      let content = ev.target.result;
-      cardView.appendChild(newFileChild(body));
-      let extension = file.name.split('.').pop();
-      let qualifiedName = `${hash}.${extension}`;
-      renderBarMatrix(hash, uploadBlue);
-      let bar = document.getElementById(`bar-${hash}`);
-      if (file.size < 10 * 1024 * 1024) {
-          fetch(`${ROOT}/${projectId}/filebox/files?name=${qualifiedName}`, {
-              method: 'POST',
-              body: content,
-              headers: header
-          })
-          .then(() => {
-            invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
-            bar.style.width = "100%";
-            setTimeout(() => {
-                showSnack(`Uploaded ${file.name}`);
-                hideBarMatrix(hash);
-            }, 500);
-          })
-      } else {
-          let chunkSize = 10 * 1024 * 1024;
-          let chunks = [];
-          for (let i = 0; i < content.byteLength; i += chunkSize) {
-              chunks.push(content.slice(i, i + chunkSize));
-          }
-          fetch(`${ROOT}/${projectId}/filebox/uploads?name=${qualifiedName}`, {
-              method: 'POST',
-              headers: header
-          })
-          .then(response => response.json())
-          .then(data => {
-              let finalChunk = chunks.pop();
-              let finalIndex = chunks.length + 1;
-              let uploadId = data["upload_id"];
-              let name = data.name;
-              let allOk = true;
-              let promises = [];
-              bar.style.width = "1%";
-              let progressIndex = 0;
-              chunks.forEach((chunk, index) => {
-                  promises.push(
-                      fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${index+1}`, {
-                          method: 'POST',
-                          body: chunk,
-                          headers: header
-                      }).then(response => {
-                          if (response.status !== 200) {
-                              allOk = false;
-                          }
-                          progressIndex ++;
-                          bar.style.width = `${Math.round((progressIndex / finalIndex) * 100)}%`;
-                      })
-                  )
-              })
-              Promise.all(promises)
-              .then(() => {
-                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${finalIndex}`, {
+      fetch(`${ROOT}/${projectId}/filebox/uploads?name=${qualifiedName}`, {
+          method: 'POST',
+          headers: header
+      })
+      .then(response => response.json())
+      .then(data => {
+          let finalChunk = chunks.pop();
+          let finalIndex = chunks.length + 1;
+          let uploadId = data["upload_id"];
+          let name = data.name;
+          let allOk = true;
+          let promises = [];
+          bar.style.width = "1%";
+          let progressIndex = 0;
+          chunks.forEach((chunk, index) => {
+              promises.push(
+                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${index+1}`, {
                       method: 'POST',
-                      body: finalChunk,
+                      body: chunk,
                       headers: header
-                  })
-                  .then(response => {
+                  }).then(response => {
                       if (response.status !== 200) {
                           allOk = false;
                       }
-                      if (allOk) {
-                          fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
-                              method: 'PATCH',
-                              headers: header,
-                          })
-                          .then(response => response.json())
-                          .then(() => {
-                              fetch("/api/metadata", {method: "POST", body: JSON.stringify(body)})
-                              .then(() => {
-                                  bar.style.width = "100%";
-                                  showSnack(`Uploaded ${file.name} successfully!`);
-                                  setTimeout(() => {
-                                      hideBarMatrix(hash);
-                                  }, 500);
-                              })
-                          })
-                      } else {
-                          showSnack(`Failed to upload ${file.name}`, snackbarRed);
-                          document.getElementById(`${hash}`).remove();
-                          fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
-                              method: 'DELETE', 
-                              headers: header
-                          })
-                          .then(() => {})
-                      }
+                      progressIndex ++;
+                      bar.style.width = `${Math.round((progressIndex / finalIndex) * 100)}%`;
                   })
-              })
+              )
           })
-      }
+          Promise.all(promises)
+          .then(() => {
+            fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}/parts?name=${name}&part=${finalIndex}`, {
+                method: 'POST',
+                body: finalChunk,
+                headers: header
+            })
+            .then(response => {
+              if (response.status !== 200) {
+                  allOk = false;
+              }
+              if (allOk) {
+                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
+                      method: 'PATCH',
+                      headers: header,
+                  })
+                  .then(response => response.json())
+                  .then(() => {
+                    invoke("post", { url: `${instanceURL}/api/metadata`, data: JSON.stringify(body), bearer: bearerToken });
+                    bar.style.width = "100%";
+                    showSnack(`Uploaded ${file.name}`);
+                    setTimeout(() => {
+                      hideBarMatrix(hash);
+                    }, 500);
+                  })
+              } else {
+                  showSnack(`Failed to upload ${file.name}`, snackbarRed);
+                  document.getElementById(`${hash}`).remove();
+                  fetch(`${ROOT}/${projectId}/filebox/uploads/${uploadId}?name=${name}`, {
+                      method: 'DELETE', 
+                      headers: header
+                  })
+                  .then(() => {})
+              }
+            })
+        })
+      })
+    }
   };
   reader.readAsArrayBuffer(file);
 }
 
 function downloadFile(file) {
-    fetch(`${instanceURL}/api/secret`)
-    .then(response => response.text())
-    .then(data => {
-        showSnack(`Downloading ${file.name}`);
-        let header = {"X-Api-Key": data}
-        let projectId = data.split("_")[0];
-        const ROOT = 'https://drive.deta.sh/v1';
-        let extension = file.name.split('.').pop();
-        let qualifiedName = file.hash + "." + extension;
-        renderBarMatrix(file.hash, downloadGreen);
-        let bar = document.getElementById(`bar-${file.hash}`);
-        fetch(`${ROOT}/${projectId}/filebox/files/download?name=${qualifiedName}`, {
-            method: 'GET',
-            headers: header
-        })
-        .then((response) => {
-            let progress = 0;
-            const reader = response.body.getReader();
-            return new ReadableStream({
-                start(controller) {
-                    return pump();
-                    function pump() {
-                        return reader.read().then(({ done, value }) => {
-                            if (done) {
-                                controller.close();
-                                return;
-                            }
-                            controller.enqueue(value);
-                            progress += value.length;
-                            bar.style.width = `${Math.round((progress / file.size) * 100)}%`;
-                            return pump();
-                        });
-                    }
-                }
-            })
-        })
-        .then((stream) => new Response(stream))
-        .then((response) => response.blob())
-        .then((blob) => URL.createObjectURL(blob))
-        .then((url) => {
-            let a = document.createElement('a');
-            a.href = url;
-            a.download = file.name;
-            bar.style.width = "100%";
-            setTimeout(() => {
-                showSnack(`Downloaded ${file.name}`);
-                hideBarMatrix(file.hash);
-            }, 500);
-            a.click();
-        })
-        .catch((err) => console.error(err));
+  showSnack(`Downloading ${file.name}`);
+  let header = {"X-Api-Key": project_key}
+  let projectId = project_key.split("_")[0];
+  const ROOT = 'https://drive.deta.sh/v1';
+  let extension = file.name.split('.').pop();
+  let qualifiedName = file.hash + "." + extension;
+  renderBarMatrix(file.hash, downloadGreen);
+  let bar = document.getElementById(`bar-${file.hash}`);
+  fetch(`${ROOT}/${projectId}/filebox/files/download?name=${qualifiedName}`, {
+      method: 'GET',
+      headers: header
+  })
+  .then((response) => {
+    let progress = 0;
+    const reader = response.body.getReader();
+    return new ReadableStream({
+        start(controller) {
+            return pump();
+            function pump() {
+              return reader.read().then(({ done, value }) => {
+                  if (done) {
+                      controller.close();
+                      return;
+                  }
+                  controller.enqueue(value);
+                  progress += value.length;
+                  bar.style.width = `${Math.round((progress / file.size) * 100)}%`;
+                  return pump();
+              });
+            }
+        }
     })
+  })
+  .then((stream) => new Response(stream))
+  .then((response) => response.blob())
+  .then((blob) => URL.createObjectURL(blob))
+  .then((url) => {
+      let a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      bar.style.width = "100%";
+      setTimeout(() => {
+          showSnack(`Downloaded ${file.name}`);
+          hideBarMatrix(file.hash);
+      }, 500);
+      a.click();
+  })
+  .catch((err) => console.error(err));
 }
 
 function handleMimeIcon(mime) {
@@ -336,18 +334,18 @@ function handleMimeIcon(mime) {
 }
 
 function handleSizeUnit(size) {
-    if (size === undefined) {
-        return "";
-    }
-    if (size < 1024) {
-        return size + " B";
-    } else if (size < 1024 * 1024) {
-        return (size / 1024).toFixed(4) + " KB";
-    } else if (size < 1024 * 1024 * 1024) {
-        return (size / 1024 / 1024).toFixed(4) + " MB";
-    } else {
-        return (size / 1024 / 1024 / 1024).toFixed(4) + " GB";
-    }
+  if (size === undefined) {
+      return "";
+  }
+  if (size < 1024) {
+      return size + " B";
+  } else if (size < 1024 * 1024) {
+      return (size / 1024).toFixed(4) + " KB";
+  } else if (size < 1024 * 1024 * 1024) {
+      return (size / 1024 / 1024).toFixed(4) + " MB";
+  } else {
+      return (size / 1024 / 1024 / 1024).toFixed(4) + " GB";
+  }
 }
 
 cardView.addEventListener("dragover", (e) => {
@@ -386,8 +384,8 @@ function showSnack(inner, color = snackbarGreen) {
     snackbar.style.backgroundColor = color;
     snackbar.style.visibility = "visible";
     setTimeout(() => {
-        snackbar.style.visibility = "hidden";
-    }, 3000);
+      snackbar.style.visibility = "hidden";
+    }, 2000);
 }
 
 function shareButtonClick(file) {
@@ -396,18 +394,17 @@ function shareButtonClick(file) {
       return;
   }
   writeText(`${instanceURL}/download/${file.hash}`)
-  showSnack(`URL copied to clipboard`);
+  .then(() => {
+      showSnack(`URL copied to clipboard`);
+  })
 }
 
 function deleteFile(file) {
-    fetch(`/api/metadata`, {
-        method: "DELETE",
-        body: JSON.stringify(file),
-    })
-    .then(() => {
-        showSnack(`Deleted ${file.name}`, snackbarRed);
-        document.getElementById(`file-${file.hash}`).remove();
-    })
+  invoke("delete", {url: `${instanceURL}/api/metadata`, data: JSON.stringify(file), bearer: bearerToken})
+  .then(() => {
+    showSnack(`Deleted ${file.name}`, snackbarRed);
+    document.getElementById(`file-${file.hash}`).remove();
+  })
 }
 
 // Progress Bar Handler
@@ -432,15 +429,12 @@ let inputTimer = null;
 search.oninput = (ev) => {
     resultPanel.style.display = "flex";
     if (inputTimer) {
-        clearTimeout(inputTimer);
+      clearTimeout(inputTimer);
     }
     inputTimer = setTimeout(() => {
         if (ev.target.value.length > 0) {
-            fetch(`/api/query`, {
-                method: "POST",
-                body: JSON.stringify({"name?contains": ev.target.value}),
-            })
-            .then(response => response.json())
+            invoke("post", {url: `${instanceURL}/api/query`, data: JSON.stringify({"name?contains": ev.target.value}), bearer: bearerToken})
+            .then(response => JSON.parse(response))
             .then(data => {
                 if (data.length === 0) {
                     resultPanel.innerHTML = `<div class="no-result" style="color: #ef5151; font-size: 15px; margin-top: 15px;">👀 No results found</div>`;
@@ -557,30 +551,27 @@ function newFileChild(file, isResult = false) {
 // Folder Deletion Handler
 let folderTarget = {};
 function deleteFolder(ev, folder) {
-    ev.stopPropagation();
-    folderTarget["hash"] = folder.hash;
-    if (folder.parent) {
-        folderTarget["children_path"] = `${folder.parent}/${folder.name}`;
-        folderTarget["self_path"] = `/${folder.parent}/${folder.name}`;
-    } else {
-        folderTarget["children_path"] = `${folder.name}`;
-        folderTarget["self_path"] = `/${folder.name}`;
-    }
-    let title = document.querySelector("#confirm_title")
-    title.innerHTML = `Permanently delete ${folderTarget.self_path} and all files inside it?`;
-    document.querySelector(".warning").style.display = "flex";
+  ev.stopPropagation();
+  folderTarget["hash"] = folder.hash;
+  if (folder.parent) {
+      folderTarget["children_path"] = `${folder.parent}/${folder.name}`;
+      folderTarget["self_path"] = `/${folder.parent}/${folder.name}`;
+  } else {
+      folderTarget["children_path"] = `${folder.name}`;
+      folderTarget["self_path"] = `/${folder.name}`;
+  }
+  let title = document.querySelector("#confirm_title")
+  title.innerHTML = `Permanently delete ${folderTarget.self_path} and all files inside it?`;
+  document.querySelector(".warning").style.display = "flex";
 }
 
 let confirmButton = document.querySelector("#confirm_yes");
 confirmButton.onclick = () => {
-    fetch(`/api/remove/folder`, {
-        method: "POST",
-        body: JSON.stringify(folderTarget),
-    } )
+    invoke("post", {url: `${instanceURL}/api/remove/folder`, data: JSON.stringify(folderTarget), bearer: bearerToken})
     .then(() => {
-        document.querySelector(".warning").style.display = "none";
-        document.getElementById(`file-${folderTarget.hash}`).remove();
-        showSnack(`Deleted ${folderTarget.self_path}`, snackbarRed);
+      document.querySelector(".warning").style.display = "none";
+      document.getElementById(`file-${folderTarget.hash}`).remove();
+      showSnack(`Deleted ${folderTarget.self_path}`, snackbarRed);
     })
 };
 
@@ -634,7 +625,9 @@ fileEmbedOption.onclick = () => {
         return;
     }
     writeText(`${instanceURL}/api/embed/${contextFile.hash}`)
-    showSnack(`Embed url copied to clipboard`);
+    .then(() => {
+      showSnack(`Embed url copied to clipboard`);
+    })
 };
 
 // Promt Path Handler
@@ -667,8 +660,8 @@ previousFolderButton.onclick = () => {
     } else if (folderQueue.length === 1) {
         pathPrompt.innerHTML = `/`;
         folderQueue.pop();
-        fetch("/api/metadata")
-        .then(response => response.json())
+        invoke("fetch", {url: `${instanceURL}/api/metadata`, bearer: bearerToken})
+        .then(response => JSON.parse(response))
         .then(data => {
             for (let file of Object.values(metadata)) {
                 let fileDiv = document.getElementById(`file-${file.hash}`);
@@ -701,7 +694,8 @@ function handleFolderClick(parent) {
         method: "POST",
         body: JSON.stringify({parent: parent})
     })
-    .then(res => res.json())
+    invoke("post", {url: `${instanceURL}/api/folder`, data: JSON.stringify({parent: parent}), bearer: bearerToken})
+    .then(res => JSON.parse(res))
     .then(data => {
         for (let file of Object.values(metadata)) {
             let fileDiv = document.getElementById(`file-${file.hash}`);
@@ -758,10 +752,8 @@ folderButton.onclick = () => {
         }
         metadata[folderData.hash] = folderData;
         cardView.appendChild(newFileChild(folderData));
-        fetch(`/api/metadata`, {
-            method: "POST",
-            body: JSON.stringify(folderData),
-        }).then(() => {
+        invoke("post", {url: `${instanceURL}/api/metadata`, data: JSON.stringify(folderData), bearer: bearerToken})
+        .then(() => {
             showSnack(`Folder ${folderName} created!`);
         });
     }
@@ -769,37 +761,38 @@ folderButton.onclick = () => {
 
 // File Rename Handler
 function fileRename(e, hash) {
-    let oldName = metadata[hash].name;
-    let oldNameExtension = oldName.split(".").pop();
-    let updatedName = e.target.innerHTML;
-    let updatedExtension = updatedName.split(".").pop();
-    if (oldNameExtension !== updatedExtension) {
-        e.target.innerHTML = oldName;
-        showSnack("File extension cannot be changed", snackbarRed);
-        isRenaming = false;
+  let oldName = metadata[hash].name;
+  let oldNameExtension = oldName.split(".").pop();
+  let updatedName = e.target.innerHTML;
+  let updatedExtension = updatedName.split(".").pop();
+  if (oldNameExtension !== updatedExtension) {
+      e.target.innerHTML = oldName;
+      showSnack("File extension cannot be changed", snackbarRed);
+      isRenaming = false;
+      return;
+  }
+  if (updatedName === oldName) {
+      isRenaming = false;
+      return;
+  }
+  let payload = {
+      hash: hash,
+      name: updatedName
+  }
+  fetch(`${instanceURL}/api/rename`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+  })
+  invoke("post", {url: `${instanceURL}/api/rename`, data: JSON.stringify(payload), bearer: bearerToken})
+  .then((data) => {
+    isRenaming = false;
+    if (res.status === 200) {
+        metadata[hash].name = updatedName;
+        showSnack(`File renamed to ${updatedName}`);
+    } else {
         return;
     }
-    if (updatedName === oldName) {
-        isRenaming = false;
-        return;
-    }
-    let payload = {
-        hash: hash,
-        name: updatedName
-    }
-    fetch(`${instanceURL}/api/rename`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-    })
-    .then((res) => {
-        isRenaming = false;
-        if (res.status === 200) {
-            metadata[hash].name = updatedName;
-            showSnack(`File renamed to ${updatedName}`);
-        } else {
-            return;
-        }
-    })
+  })
 }
 
 let logo = document.querySelector(".logo");
