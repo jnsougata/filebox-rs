@@ -13,8 +13,11 @@ let loginModalEl;
 let loginButtonEl;
 let sidebarLeftElState = false;
 
+let DEFAULT_RELASE_ID = "d3de47e4-c23b-4d75-ae64-036b0f2b7a68";
+let PARENT_INSTANCE_ID = "ebf93464-fbc4-4a13-ae67-85ba912dda22";
+
 function findParentInstance(data) {
-  const parent_app_id = "ebf93464-fbc4-4a13-ae67-85ba912dda22";
+  const parent_app_id = PARENT_INSTANCE_ID;
   let instances = JSON.parse(data).instances;
   let parentInstance = null;
   instances.forEach((instance) => {
@@ -56,7 +59,7 @@ async function loadFiles(data) {
   });
   let items = folders.concat(files);
   items.forEach(file => {
-      cardView.appendChild(newFileChild(file));
+    cardView.appendChild(newFileChild(file));
   });
 }
 
@@ -74,6 +77,25 @@ async function authFlow() {
       let token = auth.match(/_cv0_a=(.*?);/)[1];
       let instances = await invoke("fetch_instances", { bearer: token });
       let parentInstance = findParentInstance(instances);
+      if (!parentInstance) {
+        let ans = confirm("Do you want to install in your Space?", { title: "FileBox is not installed.", type: "info"})
+        if (ans) {
+          await invoke(
+            "post", 
+            { 
+              url: `https://alpha.deta.space/api/v0/instances?app_id=${PARENT_INSTANCE_ID}`, 
+              data: JSON.stringify({app_id: PARENT_INSTANCE_ID, release_id: DEFAULT_RELASE_ID}),
+              bearer: token 
+            });
+          let rep = message(
+            "FileBox is being installed in your Space.\nPlease wait for 1 minute and login again.", 
+            { title: "Installing...", type: "success" }
+          );
+          if (rep) {
+            window.close();
+          }
+        }
+      }
       instanceURL = parentInstance.url;
       bearerToken = token;
       parentInstance["bearer"] = token;
@@ -105,7 +127,7 @@ async function configExistsOrCreate() {
       return true;
     }
     catch (e) {
-      message('Please login again.', { title: 'Space session expired.', type: 'error' });
+      message('Please login again', { title: 'Space session expired', type: 'error' });
       loginModalEl.style.display = "flex";
       loginButtonEl.addEventListener("click", async () => {
         await authFlow();
